@@ -1,32 +1,34 @@
-const { Client, GatewayIntentBits, REST, Routes } = require("discord.js");
+const { Client, GatewayIntentBits } = require("discord.js");
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+});
+
+const PREFIX = ".";
 
 client.once("ready", () => {
   console.log(`Bot aktif sebagai ${client.user.tag}`);
 });
 
-const commands = [
-  { name: "ping", description: "Test bot hidup" }
-];
+client.on("messageCreate", async (message) => {
+  // Abaikan bot lain
+  if (message.author.bot) return;
 
-const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+  // Harus diawali prefix
+  if (!message.content.startsWith(PREFIX)) return;
 
-(async () => {
-  try {
-    await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
-      { body: commands }
-    );
-    console.log("Slash command siap.");
-  } catch (e) {
-    console.error(e);
+  const command = message.content.slice(PREFIX.length).trim().toLowerCase();
+
+  if (command === "ping") {
+    const sent = await message.reply("🏓 ping...");
+    const latency = sent.createdTimestamp - message.createdTimestamp;
+
+    sent.edit(`🏓 **Ping Pong!**\n⏱️ ${latency} ms`);
   }
-})();
-
-client.on("interactionCreate", async (i) => {
-  if (!i.isChatInputCommand()) return;
-  if (i.commandName === "ping") await i.reply("pong");
 });
 
 client.login(process.env.DISCORD_TOKEN);
