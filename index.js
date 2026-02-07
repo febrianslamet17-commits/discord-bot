@@ -5,7 +5,7 @@ const {
   StringSelectMenuBuilder,
 } = require("discord.js");
 
-const { getStockMatrix } = require("./sheets");
+const { getStockMatrix, getSimpleList } = require("./sheets");
 
 const client = new Client({
   intents: [
@@ -15,38 +15,40 @@ const client = new Client({
   ],
 });
 
-// ================= STATE =================
+// ================= CONFIG =================
+const OWNER_ROLE_IDS = ["1469804991987454022"];
+const SELLER_TAG = "<@habzee>";
+const DROPDOWN_TIMEOUT = 30_000;
+
+// ================= STATE (ASLI ANDA) =================
 let lastBotMessage = null;
 
-// ================= READY (FIXED) =================
+// ================= READY (FIX) =================
 client.once("ready", () => {
   console.log(`Bot aktif sebagai ${client.user.tag}`);
 });
 
 // ================= UTIL =================
 function rupiah(val) {
-  const num = Number(val) || 0;
-  return "Rp " + num.toLocaleString("id-ID");
+  return "Rp " + Number(val || 0).toLocaleString("id-ID");
+}
+
+function isStaff(member) {
+  if (!member || !member.roles) return false;
+  return member.roles.cache.some(r => OWNER_ROLE_IDS.includes(r.id));
+}
+
+function autoDeleteCommand(message) {
+  setTimeout(() => message.delete().catch(() => {}), 2000);
 }
 
 async function sendCleanReply(message, payload) {
-  try {
-    if (lastBotMessage) {
-      await lastBotMessage.delete().catch(() => {});
-    }
-    const sent = await message.reply(payload);
-    lastBotMessage = sent;
-    return sent;
-  } catch (err) {
-    console.error("SEND CLEAN ERROR:", err);
+  if (lastBotMessage) {
+    await lastBotMessage.delete().catch(() => {});
   }
-}
-
-// ================= AUTO DELETE COMMAND =================
-function autoDeleteCommand(message) {
-  setTimeout(() => {
-    message.delete().catch(() => {});
-  }, 2000);
+  const sent = await message.reply(payload);
+  lastBotMessage = sent;
+  return sent;
 }
 
 // ================= MESSAGE HANDLER =================
@@ -57,114 +59,149 @@ client.on("messageCreate", async (message) => {
   autoDeleteCommand(message);
 
   const cmd = message.content.slice(1).trim().toLowerCase();
+  const staff = isStaff(message.member);
 
-  // ============ MENU (NEW, SIMPLE) ============
+  // ============ MENU ============
   if (cmd === "menu") {
-    return sendCleanReply(
-      message,
-      "📜 **MENU BOT** 📜\n\n" +
-        "🛒 `.stock` → Cek stok barang\n" +
-        "📖 `.menu` → Lihat menu\n\n" +
-        "✨ Chat command otomatis dibersihkan"
-    );
+    let text =
+      "📜✨ **MENU BOT** ✨📜\n\n" +
+      "👥 **CUSTOMER**\n" +
+      "🛒 `.stock` → Cek stok produk\n" +
+      "🍎 `.perma` → Produk FRUIT\n" +
+      "🎮 `.gamepass` → Produk Game Pass\n\n";
+
+    if (staff) {
+      text +=
+        "━━━━━━━━━━━━━━━━\n" +
+        "🧠 **OWNER / STAFF**\n" +
+        "📊 `.stock` → Detail stok per akun\n\n";
+    }
+
+    return sendCleanReply(message, text + "⏳ Dropdown aktif 30 detik");
   }
 
-  // ============ PING ============
-  if (cmd === "ping") {
-    const temp = await sendCleanReply(message, "🏓 Pong...");
-    const latency = temp.createdTimestamp - message.createdTimestamp;
-
-    await temp.edit(
-      `🏓 **Ping Pong!**\n⏱️ Latency: **${latency} ms**\n🟢 **Bot Online**`
-    );
-    return;
-  }
-
-  // ============ HELP ============
-  if (cmd === "help") {
-    return sendCleanReply(
-      message,
-      "📖 **DAFTAR COMMAND**\n\n" +
-        "• `.menu`\n" +
-        "• `.ping`\n" +
-        "• `.stock`\n\n" +
-        "✨ Pesan lama akan otomatis dibersihkan"
-    );
-  }
-
-  // ============ STOCK (ASLI ANDA, TIDAK DIUBAH) ============
+  // ============ STOCK (USER & STAFF) ============
   if (cmd === "stock") {
-    const { items } = await getStockMatrix();
+    const data = await getStockMatrix();
 
-    const options = items
-      .map((name, index) =>
-        name
-          ? {
-              label: name,
-              value: String(index),
-              emoji: "📦",
-            }
-          : null
+    const options = data.items
+      .map((name, i) =>
+        name ? { label: name, value: String(i), emoji: "📦" } : null
       )
       .filter(Boolean)
       .slice(0, 25);
 
     if (!options.length) {
-      return sendCleanReply(message, "❌ Tidak ada data barang.");
+      return sendCleanReply(message, "❌ Tidak ada data stok.");
     }
 
     const menu = new StringSelectMenuBuilder()
-      .setCustomId("select_stock_item")
-      .setPlaceholder("📦 Pilih nama barang")
+      .setCustomId(staff ? "stock_staff" : "stock_user")
+      .setPlaceholder("📦 Pilih produk")
       .addOptions(options);
 
-    const row = new ActionRowBuilder().addComponents(menu);
-
     return sendCleanReply(message, {
-      content:
-        "🛒 **CEK STOK BARANG**\n" +
-        "Silakan pilih barang di bawah ini:",
-      components: [row],
+      content: staff
+        ? "🧠📊 **MODE STAFF — DETAIL STOK**"
+        : "🛒✨ **CEK STOK PRODUK**",
+      components: [new ActionRowBuilder().addComponents(menu)],
     });
+  }
+
+  // ============ PERMA ============
+  if (cmd === "perma") {
+    return listCommand(message, "FRUIT", "🍎");
+  }
+
+  // ============ GAMEPASS ============
+  if (cmd === "gamepass") {
+    return listCommand(message, "GP", "🎮");
   }
 });
 
-// ================= DROPDOWN (ASLI ANDA, AMAN) =================
-client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isStringSelectMenu()) return;
-  if (interaction.customId !== "select_stock_item") return;
+// ================= LIST COMMAND =================
+async function listCommand(message, sheet, emoji) {
+  const list = await getSimpleList(sheet);
+  if (!list.length) {
+    return sendCleanReply(message, "❌ Data kosong.");
+  }
 
-  const index = Number(interaction.values[0]);
-  const { items, totals, prices } = await getStockMatrix();
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`list_${sheet}`)
+    .setPlaceholder("📦 Pilih produk")
+    .addOptions(
+      list.slice(0, 25).map((v, i) => ({
+        label: v.name,
+        value: String(i),
+        emoji,
+      }))
+    );
 
-  const name = items[index];
-  const total = Number(totals[index]) || 0;
-  const price = prices[index] || 0;
+  return sendCleanReply(message, {
+    content: `${emoji}✨ **DAFTAR PRODUK** ✨${emoji}`,
+    components: [new ActionRowBuilder().addComponents(menu)],
+  });
+}
 
-  const statusEmoji = total > 0 ? "🟢" : "🔴";
-  const statusText = total > 0 ? "READY" : "HABIS";
+// ================= INTERACTION =================
+client.on("interactionCreate", async (i) => {
+  if (!i.isStringSelectMenu()) return;
 
-  try {
-    if (lastBotMessage) {
-      await lastBotMessage.delete().catch(() => {});
-    }
+  setTimeout(() => {
+    i.deleteReply().catch(() => {});
+  }, DROPDOWN_TIMEOUT);
 
-    const sent = await interaction.reply({
+  const data = await getStockMatrix();
+
+  // USER STOCK
+  if (i.customId === "stock_user") {
+    const idx = Number(i.values[0]);
+    return i.reply({
       content:
-        "━━━━━━━━━━━━━━━━━━━\n" +
-        "🛍️ **INFORMASI STOK BARANG**\n" +
-        "━━━━━━━━━━━━━━━━━━━\n\n" +
-        `📦 **Produk** : ${name}\n` +
-        `📊 **Total Stok** : ${total}\n` +
-        `💰 **Harga / @** : ${rupiah(price)}\n` +
-        `${statusEmoji} **Status** : ${statusText}\n\n` +
-        "📞 Hubungi admin @habzee\n" +
-        "━━━━━━━━━━━━━━━━━━━",
+        "━━━━━━━━━━━━━━━\n" +
+        "🛍️ **INFO STOK**\n" +
+        "━━━━━━━━━━━━━━━\n\n" +
+        `📦 Produk : **${data.items[idx]}**\n` +
+        `📊 Stok : **${data.totals[idx]}**\n` +
+        `💰 Harga : **${rupiah(data.prices[idx])}**\n` +
+        `🟢 Status : **${data.totals[idx] > 0 ? "READY" : "HABIS"}**\n\n` +
+        `📞 Seller : ${SELLER_TAG}`,
+    });
+  }
+
+  // STAFF STOCK
+  if (i.customId === "stock_staff") {
+    const idx = Number(i.values[0]);
+    let detail = "";
+
+    data.owners.forEach((o, r) => {
+      const val = data.perOwner[r]?.[idx];
+      if (val) detail += `👤 **${o}** → ${val}\n`;
     });
 
-    lastBotMessage = sent;
-  } catch (err) {
-    console.error("INTERACTION ERROR:", err);
+    return i.reply({
+      content:
+        "🧠📊 **DETAIL STOK PER AKUN**\n\n" +
+        `📦 Produk : **${data.items[idx]}**\n\n` +
+        detail +
+        `\n📊 Total : **${data.totals[idx]}**`,
+    });
+  }
+
+  // FRUIT / GP
+  if (i.customId.startsWith("list_")) {
+    const sheet = i.customId.split("_")[1];
+    const list = await getSimpleList(sheet);
+    const item = list[Number(i.values[0])];
+
+    return i.reply({
+      content:
+        "✨📦 **DETAIL PRODUK**\n\n" +
+        `🛍️ Produk : **${item.name}**\n` +
+        `💰 Harga : **${item.price ? rupiah(item.price) : "❌"}**\n` +
+        `🟢 Status : **${item.price ? "READY" : "KOSONG"}**\n\n` +
+        `📞 Seller : ${SELLER_TAG}`,
+    });
   }
 });
 

@@ -20,19 +20,37 @@ async function readRange(range) {
   return res.data.values || [];
 }
 
-// ================= STOCK MATRIX =================
+// ================= STOCK MATRIX (ASLI + DETAIL AKUN) =================
 async function getStockMatrix() {
   const itemsRow = await readRange("STOCK_MATRIX!B6:T6");
   const totalsRow = await readRange("STOCK_MATRIX!B21:T21");
   const pricesRow = await readRange("STOCK_MATRIX!B23:T23");
 
+  // TAMBAHAN (UNTUK STAFF)
+  const owners = (await readRange("STOCK_MATRIX!A7:A20")).flat();
+  const perOwner = await readRange("STOCK_MATRIX!B7:T20");
+
   return {
     items: itemsRow[0] || [],
     totals: totalsRow[0] || [],
     prices: pricesRow[0] || [],
+    owners,
+    perOwner,
   };
+}
+
+// ================= GENERIC LIST (FRUIT / GP) =================
+async function getSimpleList(sheet) {
+  const rows = await readRange(`${sheet}!A2:B`);
+  return rows
+    .filter(r => r[0])
+    .map(r => ({
+      name: r[0],
+      price: r[1] || null,
+    }));
 }
 
 module.exports = {
   getStockMatrix,
+  getSimpleList,
 };
