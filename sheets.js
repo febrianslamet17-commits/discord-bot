@@ -6,13 +6,13 @@ const auth = new google.auth.JWT({
   scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
 });
 
-async function getClient() {
+async function getSheetsClient() {
   await auth.authorize();
   return google.sheets({ version: "v4", auth });
 }
 
-async function read(range) {
-  const sheets = await getClient();
+async function readRange(range) {
+  const sheets = await getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
     range,
@@ -20,29 +20,19 @@ async function read(range) {
   return res.data.values || [];
 }
 
-// ================= STOCK =================
+// ================= STOCK MATRIX =================
 async function getStockMatrix() {
-  return {
-    items: (await read("STOCK_MATRIX!B6:T6"))[0] || [],
-    totals: (await read("STOCK_MATRIX!B21:T21"))[0] || [],
-    prices: (await read("STOCK_MATRIX!B23:T23"))[0] || [],
-    owners: (await read("STOCK_MATRIX!A7:A20")).flat(),
-    perOwner: await read("STOCK_MATRIX!B7:T20"),
-  };
-}
+  const itemsRow = await readRange("STOCK_MATRIX!B6:T6");
+  const totalsRow = await readRange("STOCK_MATRIX!B21:T21");
+  const pricesRow = await readRange("STOCK_MATRIX!B23:T23");
 
-// ================= GENERIC LIST =================
-async function getList(sheet) {
-  const rows = await read(`${sheet}!A2:B`);
-  return rows
-    .filter(r => r[0])
-    .map(r => ({
-      name: r[0],
-      price: r[1] || null,
-    }));
+  return {
+    items: itemsRow[0] || [],
+    totals: totalsRow[0] || [],
+    prices: pricesRow[0] || [],
+  };
 }
 
 module.exports = {
   getStockMatrix,
-  getList,
 };
