@@ -20,52 +20,78 @@ client.once("clientReady", () => {
   console.log(`Bot aktif sebagai ${client.user.tag}`);
 });
 
-// ================= FORMAT =================
+// ================= FORMAT RUPIAH =================
 function rupiah(val) {
   const num = Number(val) || 0;
   return "Rp " + num.toLocaleString("id-ID");
 }
 
-// ================= .stock =================
+// ================= MESSAGE HANDLER =================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
-  if (message.content.trim().toLowerCase() !== ".stock") return;
+  if (!message.content.startsWith(".")) return;
 
-  const { items } = await getStockMatrix();
+  const cmd = message.content.slice(1).trim().toLowerCase();
 
-  const options = items
-    .map((name, index) =>
-      name
-        ? {
-            label: name,
-            value: String(index),
-            emoji: "📦",
-          }
-        : null
-    )
-    .filter(Boolean)
-    .slice(0, 25); // limit Discord
+  // ================= PING =================
+  if (cmd === "ping") {
+    const sent = await message.reply("🏓 Pong...");
+    const latency = sent.createdTimestamp - message.createdTimestamp;
 
-  if (!options.length) {
-    return message.reply("❌ Tidak ada data barang.");
+    return sent.edit(
+      `🏓 **Ping Pong!**\n⏱️ Latency: **${latency} ms** 🟢 **Bot Online**`
+    );
   }
 
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId("select_stock_item")
-    .setPlaceholder("📦 Pilih nama barang")
-    .addOptions(options);
+  // ================= HELP =================
+  if (cmd === "help") {
+    return message.reply(
+      "📖 **DAFTAR COMMAND**\n\n" +
+      "• `.ping` → Cek respon bot\n" +
+      "• `.stock` → Cek stok barang\n" +
+      "• `.help` → Bantuan\n\n" +
+      "✨ Gunakan dropdown untuk memilih barang"
+    );
+  }
 
-  const row = new ActionRowBuilder().addComponents(menu);
+  // ================= STOCK (DROPDOWN) =================
+  if (cmd === "stock") {
+    const { items } = await getStockMatrix();
 
-  return message.reply({
-    content:
-      "🛒 **CEK STOK BARANG**\n" +
-      "Silakan pilih barang di bawah ini:",
-    components: [row],
-  });
+    const options = items
+      .map((name, index) =>
+        name
+          ? {
+              label: name,
+              value: String(index),
+              emoji: "📦",
+            }
+          : null
+      )
+      .filter(Boolean)
+      .slice(0, 25);
+
+    if (!options.length) {
+      return message.reply("❌ Tidak ada data barang.");
+    }
+
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId("select_stock_item")
+      .setPlaceholder("📦 Pilih nama barang")
+      .addOptions(options);
+
+    const row = new ActionRowBuilder().addComponents(menu);
+
+    return message.reply({
+      content:
+        "🛒 **CEK STOK BARANG**\n" +
+        "Silakan pilih barang di bawah ini:",
+      components: [row],
+    });
+  }
 });
 
-// ================= PILIH BARANG =================
+// ================= DROPDOWN INTERACTION =================
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isStringSelectMenu()) return;
   if (interaction.customId !== "select_stock_item") return;
