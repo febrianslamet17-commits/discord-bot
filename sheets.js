@@ -1,3 +1,8 @@
+console.log("ENV CHECK");
+console.log("GOOGLE_CLIENT_EMAIL ADA:", !!process.env.GOOGLE_CLIENT_EMAIL);
+console.log("GOOGLE_PRIVATE_KEY ADA:", !!process.env.GOOGLE_PRIVATE_KEY);
+console.log("GOOGLE_SHEET_ID ADA:", !!process.env.GOOGLE_SHEET_ID);
+
 const { google } = require("googleapis");
 
 const auth = new google.auth.JWT(
