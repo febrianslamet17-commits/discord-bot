@@ -1,6 +1,5 @@
 const { google } = require("googleapis");
 
-// ================= AUTH =================
 const auth = new google.auth.JWT({
   email: process.env.GOOGLE_CLIENT_EMAIL,
   key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
@@ -12,7 +11,6 @@ async function getSheetsClient() {
   return google.sheets({ version: "v4", auth });
 }
 
-// ================= HELPER =================
 async function readRange(range) {
   const sheets = await getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
@@ -22,28 +20,19 @@ async function readRange(range) {
   return res.data.values || [];
 }
 
-// ================= COMMAND ENGINE =================
-async function getCommands() {
-  return await readRange("COMMANDS!A2:E");
-}
-
-async function getResponses() {
-  return await readRange("RESPONSES!A2:B");
-}
-
-// ================= STOCK VIEW (FINAL) =================
-async function getStockView() {
+// ================= STOCK MATRIX =================
+async function getStockMatrix() {
   const itemsRow = await readRange("STOCK_MATRIX!B6:T6");
   const totalsRow = await readRange("STOCK_MATRIX!B21:T21");
+  const pricesRow = await readRange("STOCK_MATRIX!B23:T23");
 
   return {
     items: itemsRow[0] || [],
     totals: totalsRow[0] || [],
+    prices: pricesRow[0] || [],
   };
 }
 
 module.exports = {
-  getCommands,
-  getResponses,
-  getStockView,
+  getStockMatrix,
 };

@@ -5,11 +5,7 @@ const {
   StringSelectMenuBuilder,
 } = require("discord.js");
 
-const {
-  getCommands,
-  getResponses,
-  getStockView,
-} = require("./sheets");
+const { getStockMatrix } = require("./sheets");
 
 const client = new Client({
   intents: [
@@ -25,99 +21,76 @@ client.once("clientReady", () => {
 });
 
 // ================= FORMAT =================
-function formatNumber(val) {
-  return Number(val) || 0;
+function rupiah(val) {
+  const num = Number(val) || 0;
+  return "Rp " + num.toLocaleString("id-ID");
 }
 
-// ================= MESSAGE HANDLER =================
+// ================= .stock =================
 client.on("messageCreate", async (message) => {
-  try {
-    if (message.author.bot) return;
-    if (!message.content.startsWith(".")) return;
+  if (message.author.bot) return;
+  if (message.content.trim().toLowerCase() !== ".stock") return;
 
-    const input = message.content.slice(1).trim().toLowerCase();
-    if (!input) return;
+  const { items } = await getStockMatrix();
 
-    // ================= STOCK (DROPDOWN) =================
-    if (input === "stock") {
-      const { items } = await getStockView();
+  const options = items
+    .map((name, index) =>
+      name
+        ? {
+            label: name,
+            value: String(index),
+            emoji: "📦",
+          }
+        : null
+    )
+    .filter(Boolean)
+    .slice(0, 25); // limit Discord
 
-      const options = items
-        .map((item, index) => item ? {
-          label: item,
-          value: String(index),
-        } : null)
-        .filter(Boolean)
-        .slice(0, 25);
-
-      const menu = new StringSelectMenuBuilder()
-        .setCustomId("select_stock_item")
-        .setPlaceholder("📦 Pilih nama barang")
-        .addOptions(options);
-
-      const row = new ActionRowBuilder().addComponents(menu);
-
-      return message.reply({
-        content: "🛒 **Pilih barang untuk cek stok:**",
-        components: [row],
-      });
-    }
-
-    // ================= COMMAND TEXT (PING DLL) =================
-    const commands = await getCommands();
-    const responses = await getResponses();
-
-    const cmd = commands.find(
-      (row) =>
-        row &&
-        row[0] === input &&
-        row[4] === "active"
-    );
-
-    if (!cmd) return;
-
-    const responseKey = cmd[2];
-    const response = responses.find(
-      (row) => row && row[0] === responseKey
-    );
-    if (!response) return;
-
-    let template = response[1];
-
-    if (template.includes("{{latency}}")) {
-      const sent = await message.reply("⏳");
-      const latency =
-        sent.createdTimestamp - message.createdTimestamp;
-      return sent.edit(
-        template.replace("{{latency}}", latency)
-      );
-    }
-
-    return message.reply(template);
-  } catch (err) {
-    console.error("ERROR MESSAGE:", err);
+  if (!options.length) {
+    return message.reply("❌ Tidak ada data barang.");
   }
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("select_stock_item")
+    .setPlaceholder("📦 Pilih nama barang")
+    .addOptions(options);
+
+  const row = new ActionRowBuilder().addComponents(menu);
+
+  return message.reply({
+    content:
+      "🛒 **CEK STOK BARANG**\n" +
+      "Silakan pilih barang di bawah ini:",
+    components: [row],
+  });
 });
 
-// ================= DROPDOWN INTERACTION =================
+// ================= PILIH BARANG =================
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isStringSelectMenu()) return;
   if (interaction.customId !== "select_stock_item") return;
 
   const index = Number(interaction.values[0]);
-  const { items, totals } = await getStockView();
+  const { items, totals, prices } = await getStockMatrix();
 
   const name = items[index];
-  const total = formatNumber(totals[index]);
+  const total = Number(totals[index]) || 0;
+  const price = prices[index] || 0;
+
   const statusEmoji = total > 0 ? "🟢" : "🔴";
   const statusText = total > 0 ? "READY" : "HABIS";
 
   return interaction.reply({
     content:
-      `🛒 **INFORMASI STOK BARANG**\n\n` +
-      `📦 Nama Barang : **${name}**\n` +
-      `📊 Total Stok  : **${total}**\n` +
-      `${statusEmoji} Status      : **${statusText}**`,
+      "━━━━━━━━━━━━━━━━━━━\n" +
+      "🛍️ **INFORMASI STOK BARANG**\n" +
+      "━━━━━━━━━━━━━━━━━━━\n\n" +
+      `📦 **Produk** : ${name}\n` +
+      `📊 **Total Stok** : ${total}\n` +
+      `💰 **Harga / @** : ${rupiah(price)}\n` +
+      `${statusEmoji} **Status** : ${statusText}\n\n` +
+      "📞 Hubungi admin untuk pemesanan\n" +
+      "━━━━━━━━━━━━━━━━━━━",
   });
 });
 
