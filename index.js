@@ -20,12 +20,12 @@ const OWNER_ROLE_IDS = ["1469804991987454022"];
 const SELLER_TAG = "<@habzee>";
 const DROPDOWN_TIMEOUT = 30_000;
 
-// ================= STATE (ASLI ANDA) =================
+// ================= STATE =================
 let lastBotMessage = null;
 
-// ================= READY (FIX) =================
+// ================= READY =================
 client.once("ready", () => {
-  console.log(`Bot aktif sebagai ${client.user.tag}`);
+  console.log(`✅ Bot aktif sebagai ${client.user.tag}`);
 });
 
 // ================= UTIL =================
@@ -39,7 +39,9 @@ function isStaff(member) {
 }
 
 function autoDeleteCommand(message) {
-  setTimeout(() => message.delete().catch(() => {}), 2000);
+  setTimeout(() => {
+    message.delete().catch(() => {});
+  }, 2000);
 }
 
 async function sendCleanReply(message, payload) {
@@ -61,26 +63,40 @@ client.on("messageCreate", async (message) => {
   const cmd = message.content.slice(1).trim().toLowerCase();
   const staff = isStaff(message.member);
 
+  // ============ 🔥 PING (FIX FINAL) ============
+  if (cmd === "ping") {
+    const sent = await message.reply("🏓 **Ping...**");
+    const latency = sent.createdTimestamp - message.createdTimestamp;
+
+    return sent.edit(
+      "🏓 **PING PONG!** 🏓\n\n" +
+      `⏱️ **Latency** : **${latency} ms**\n` +
+      "🟢 **Status** : **BOT ONLINE**"
+    );
+  }
+
   // ============ MENU ============
   if (cmd === "menu") {
     let text =
-      "📜✨ **MENU BOT** ✨📜\n\n" +
+      "📜✨ **MENU BOT** ✨📜\n" +
+      "━━━━━━━━━━━━━━━━━━\n\n" +
       "👥 **CUSTOMER**\n" +
-      "🛒 `.stock` → Cek stok produk Fruit\n" +
-      "🍎 `.perma` → Produk Permanent FRUIT\n" +
-      "🎮 `.gamepass` → Produk Game Pass\n\n";
+      "🛒 `.stock` → Cek stok produk\n" +
+      "🍎 `.perma` → Produk FRUIT\n" +
+      "🎮 `.gamepass` → Produk Game Pass\n" +
+      "🏓 `.ping` → Cek status bot\n\n";
 
     if (staff) {
       text +=
-        "━━━━━━━━━━━━━━━━\n" +
+        "━━━━━━━━━━━━━━━━━━\n" +
         "🧠 **OWNER / STAFF**\n" +
         "📊 `.stock` → Detail stok per akun\n\n";
     }
 
-    return sendCleanReply(message, text + "⏳ Dropdown aktif 30 detik");
+    return sendCleanReply(message, text);
   }
 
-  // ============ STOCK (USER & STAFF) ============
+  // ============ STOCK ============
   if (cmd === "stock") {
     const data = await getStockMatrix();
 
@@ -153,23 +169,18 @@ client.on("interactionCreate", async (i) => {
 
   const data = await getStockMatrix();
 
-  // USER STOCK
   if (i.customId === "stock_user") {
     const idx = Number(i.values[0]);
     return i.reply({
       content:
-        "━━━━━━━━━━━━━━━\n" +
-        "🛍️ **INFO STOK**\n" +
-        "━━━━━━━━━━━━━━━\n\n" +
-        `📦 Produk : **${data.items[idx]}**\n` +
+        `📦 **${data.items[idx]}**\n` +
         `📊 Stok : **${data.totals[idx]}**\n` +
         `💰 Harga : **${rupiah(data.prices[idx])}**\n` +
         `🟢 Status : **${data.totals[idx] > 0 ? "READY" : "HABIS"}**\n\n` +
-        `📞 Seller : Pembelian Hubungi Owner ${SELLER_TAG}`,
+        `📞 Seller : ${SELLER_TAG}`,
     });
   }
 
-  // STAFF STOCK
   if (i.customId === "stock_staff") {
     const idx = Number(i.values[0]);
     let detail = "";
@@ -179,29 +190,22 @@ client.on("interactionCreate", async (i) => {
       if (val) detail += `👤 **${o}** → ${val}\n`;
     });
 
-    return i.reply({
-      content:
-        "🧠📊 **DETAIL STOK PER AKUN**\n\n" +
-        `📦 Produk : **${data.items[idx]}**\n\n` +
-        detail +
-        `\n📊 Total : **${data.totals[idx]}**`,
-    });
+    return i.reply(
+      `📦 **${data.items[idx]}**\n\n${detail}\n📊 Total : **${data.totals[idx]}**`
+    );
   }
 
-  // FRUIT / GP
   if (i.customId.startsWith("list_")) {
     const sheet = i.customId.split("_")[1];
     const list = await getSimpleList(sheet);
     const item = list[Number(i.values[0])];
 
-    return i.reply({
-      content:
-        "✨📦 **DETAIL PRODUK**\n\n" +
-        `🛍️ Produk : **${item.name}**\n` +
-        `💰 Harga : **${item.price ? rupiah(item.price) : "❌"}**\n` +
-        `🟢 Status : **${item.price ? "READY" : "KOSONG"}**\n\n` +
-        `📞 Seller : ${SELLER_TAG}`,
-    });
+    return i.reply(
+      `🛍️ **${item.name}**\n` +
+      `💰 Harga : **${item.price ? rupiah(item.price) : "❌"}**\n` +
+      `🟢 Status : **${item.price ? "READY" : "KOSONG"}**\n\n` +
+      `📞 Seller : ${SELLER_TAG}`
+    );
   }
 });
 
