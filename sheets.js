@@ -7,7 +7,6 @@ const auth = new google.auth.JWT({
 });
 
 async function getSheetsClient() {
-  // 🔑 INI YANG KURANG
   await auth.authorize();
 
   return google.sheets({
