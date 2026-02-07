@@ -1,4 +1,3 @@
-require("dotenv").config();
 const { Client, GatewayIntentBits } = require("discord.js");
 const { getCommands, getResponses } = require("./sheets");
 
@@ -10,43 +9,54 @@ const client = new Client({
   ],
 });
 
-// === BOT READY ===
+// ================= READY =================
 client.once("clientReady", () => {
   console.log(`Bot aktif sebagai ${client.user.tag}`);
 });
 
-// === MESSAGE HANDLER (.command) ===
+// ================= MESSAGE HANDLER =================
 client.on("messageCreate", async (message) => {
   try {
     // abaikan bot
     if (message.author.bot) return;
 
-    // hanya proses pesan diawali titik
+    // hanya command bertitik
     if (!message.content.startsWith(".")) return;
 
     const input = message.content.slice(1).trim().toLowerCase();
     if (!input) return;
 
-    // ambil data dari sheet
+    // ambil data dari Google Sheets
     const commands = await getCommands();
     const responses = await getResponses();
 
-    // cari command yang aktif
-    const cmd = commands.find(
-      ([command, , , , status]) =>
-        status === "active" && command === input
-    );
+    // ================= CARI COMMAND (DEFENSIF) =================
+    const cmd = commands.find((row) => {
+      if (!row || row.length < 5) return false;
+
+      const command = row[0];
+      const status = row[4];
+
+      if (!command || !status) return false;
+
+      return status === "active" && command === input;
+    });
 
     if (!cmd) return;
 
-    const [, , responseKey] = cmd;
+    const responseKey = cmd[2];
+    if (!responseKey) return;
 
-    const response = responses.find(([key]) => key === responseKey);
+    // ================= CARI RESPONSE (DEFENSIF) =================
+    const response = responses.find(
+      (row) => row && row[0] === responseKey && row[1]
+    );
+
     if (!response) return;
 
     let template = response[1];
 
-    // handle latency
+    // ================= HANDLE LATENCY =================
     if (template.includes("{{latency}}")) {
       const sent = await message.reply("⏳");
       const latency = sent.createdTimestamp - message.createdTimestamp;
@@ -54,12 +64,12 @@ client.on("messageCreate", async (message) => {
       return sent.edit(template);
     }
 
-    // balasan biasa
+    // ================= BALAS NORMAL =================
     return message.reply(template);
   } catch (err) {
-    console.error("ERROR MESSAGE HANDLER:", err.message);
+    console.error("ERROR MESSAGE HANDLER:", err);
   }
 });
 
-// === LOGIN ===
+// ================= LOGIN =================
 client.login(process.env.DISCORD_TOKEN);
