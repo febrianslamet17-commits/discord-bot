@@ -1,9 +1,11 @@
-const { Client, GatewayIntentBits } = require("discord.js");
 const {
-  getCommands,
-  getResponses,
-  getStockView,
-} = require("./sheets");
+  Client,
+  GatewayIntentBits,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+} = require("discord.js");
+
+const { getStockView } = require("./sheets");
 
 const client = new Client({
   intents: [
@@ -24,80 +26,62 @@ function formatRupiah(angka) {
   return "Rp " + Number(angka).toLocaleString("id-ID");
 }
 
-// ================= MESSAGE HANDLER =================
+// ================= MESSAGE (.stock) =================
 client.on("messageCreate", async (message) => {
-  try {
-    if (message.author.bot) return;
-    if (!message.content.startsWith(".")) return;
+  if (message.author.bot) return;
+  if (message.content.trim().toLowerCase() !== ".stock") return;
 
-    const input = message.content.slice(1).trim().toLowerCase();
-    if (!input) return;
+  const { items } = await getStockView();
 
-    // ================= STOCK COMMAND =================
-    if (input.startsWith("stock")) {
-      const query = input.replace("stock", "").trim().toLowerCase();
-      if (!query) {
-        return message.reply(
-          "❗ **Format salah**\nGunakan:\n`.stock nama_barang`"
-        );
-      }
-
-      const { items, totals, prices } = await getStockView();
-
-      const index = items.findIndex(
-        (item) => item && item.toLowerCase() === query
-      );
-
-      if (index === -1) {
-        return message.reply(
-          "❌ **Barang tidak ditemukan**\nPeriksa kembali nama barang."
-        );
-      }
-
-      const total = Number(totals[index]) || 0;
-      const price = prices[index] || 0;
-      const statusEmoji = total > 0 ? "🟢" : "🔴";
-      const statusText = total > 0 ? "READY" : "HABIS";
-
-      return message.reply(
-        `🛒 **INFORMASI STOK BARANG**\n\n` +
-        `📦 Nama Barang : **${items[index]}**\n` +
-        `📊 Total Stok  : **${total}**\n` +
-        `💰 Harga / @   : **${formatRupiah(price)}**\n` +
-        `${statusEmoji} Status      : **${statusText}**\n\n` +
-        `✨ Silakan hubungi admin untuk pemesanan`
-      );
-    }
-
-    // ================= COMMAND LAIN =================
-    const commands = await getCommands();
-    const responses = await getResponses();
-
-    const cmd = commands.find(
-      (row) => row && row[0] === input && row[4] === "active"
-    );
-
-    if (!cmd) return;
-
-    const responseKey = cmd[2];
-    const response = responses.find(
-      (row) => row && row[0] === responseKey && row[1]
-    );
-    if (!response) return;
-
-    let template = response[1];
-
-    if (template.includes("{{latency}}")) {
-      const sent = await message.reply("⏳");
-      const latency =
-        sent.createdTimestamp - message.createdTimestamp;
-      return sent.edit(template.replace("{{latency}}", latency));
-    }
-
-    return message.reply(template);
-  } catch (err) {
-    console.error("ERROR MESSAGE HANDLER:", err);
+  if (!items.length) {
+    return message.reply("❌ Tidak ada data barang.");
   }
+
+  // Discord limit: max 25 option
+  const options = items.slice(0, 25).map((item, index) => ({
+    label: item,
+    value: String(index),
+  }));
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("select_stock_item")
+    .setPlaceholder("📦 Pilih nama barang")
+    .addOptions(options);
+
+  const row = new ActionRowBuilder().addComponents(menu);
+
+  return message.reply({
+    content: "🛒 **Pilih barang untuk cek stok:**",
+    components: [row],
+  });
+});
+
+// ================= INTERACTION (PILIH BARANG) =================
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isStringSelectMenu()) return;
+  if (interaction.customId !== "select_stock_item") return;
+
+  const index = Number(interaction.values[0]);
+
+  const { items, totals, prices } = await getStockView();
+
+  const name = items[index];
+  const total = Number(totals[index]) || 0;
+  const price = prices[index] || 0;
+
+  const statusEmoji = total > 0 ? "🟢" : "🔴";
+  const statusText = total > 0 ? "READY" : "HABIS";
+
+  return interaction.reply({
+    content:
+      `🛒 **INFORMASI STOK BARANG**\n\n` +
+      `📦 Nama Barang : **${name}**\n` +
+      `📊 Total Stok  : **${total}**\n` +
+      `💰 Harga / @   : **${formatRupiah(price)}**\n` +
+      `${statusEmoji} Status      : **${statusText}**\n\n` +
+      `✨ Silakan hubungi admin untuk pemesanan`,
+    ephemeral: false,
+  });
 });
 
 // ================= LOGIN =================
