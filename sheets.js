@@ -1,6 +1,6 @@
 const { google } = require("googleapis");
 
-// ================= GOOGLE AUTH =================
+// ================= AUTH =================
 const auth = new google.auth.JWT({
   email: process.env.GOOGLE_CLIENT_EMAIL,
   key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
@@ -31,16 +31,14 @@ async function getResponses() {
   return await readRange("RESPONSES!A2:B");
 }
 
-// ================= STOCK + PRICE =================
+// ================= STOCK VIEW (FINAL) =================
 async function getStockView() {
   const itemsRow = await readRange("BOT_VIEW!B6:T6");
   const totalsRow = await readRange("BOT_VIEW!B21:T21");
-  const pricesCol = await readRange("BOT_VIEW!D2:D");
 
   return {
     items: itemsRow[0] || [],
     totals: totalsRow[0] || [],
-    prices: pricesCol.map((r) => r[0]) || [],
   };
 }
 
