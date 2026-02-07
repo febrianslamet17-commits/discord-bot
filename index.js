@@ -15,15 +15,32 @@ const client = new Client({
   ],
 });
 
+// ================= STATE =================
+let lastBotMessage = null;
+
 // ================= READY =================
 client.once("clientReady", () => {
   console.log(`Bot aktif sebagai ${client.user.tag}`);
 });
 
-// ================= FORMAT RUPIAH =================
+// ================= UTIL =================
 function rupiah(val) {
   const num = Number(val) || 0;
   return "Rp " + num.toLocaleString("id-ID");
+}
+
+async function sendCleanReply(message, payload) {
+  try {
+    if (lastBotMessage) {
+      await lastBotMessage.delete().catch(() => {});
+    }
+
+    const sent = await message.reply(payload);
+    lastBotMessage = sent;
+    return sent;
+  } catch (err) {
+    console.error("SEND CLEAN ERROR:", err);
+  }
 }
 
 // ================= MESSAGE HANDLER =================
@@ -33,28 +50,30 @@ client.on("messageCreate", async (message) => {
 
   const cmd = message.content.slice(1).trim().toLowerCase();
 
-  // ================= PING =================
+  // ============ PING ============
   if (cmd === "ping") {
-    const sent = await message.reply("🏓 Pong...");
-    const latency = sent.createdTimestamp - message.createdTimestamp;
+    const temp = await sendCleanReply(message, "🏓 Pong...");
+    const latency = temp.createdTimestamp - message.createdTimestamp;
 
-    return sent.edit(
+    await temp.edit(
       `🏓 **Ping Pong!**\n⏱️ Latency: **${latency} ms** 🟢 **Bot Online**`
     );
+    return;
   }
 
-  // ================= HELP =================
+  // ============ HELP ============
   if (cmd === "help") {
-    return message.reply(
+    return sendCleanReply(
+      message,
       "📖 **DAFTAR COMMAND**\n\n" +
-      "• `.ping` → Cek respon bot\n" +
-      "• `.stock` → Cek stok barang\n" +
-      "• `.help` → Bantuan\n\n" +
-      "✨ Gunakan dropdown untuk memilih barang"
+        "• `.ping` → Cek respon bot\n" +
+        "• `.stock` → Cek stok barang\n" +
+        "• `.help` → Bantuan\n\n" +
+        "✨ Pesan lama akan otomatis dibersihkan"
     );
   }
 
-  // ================= STOCK (DROPDOWN) =================
+  // ============ STOCK ============
   if (cmd === "stock") {
     const { items } = await getStockMatrix();
 
@@ -72,7 +91,7 @@ client.on("messageCreate", async (message) => {
       .slice(0, 25);
 
     if (!options.length) {
-      return message.reply("❌ Tidak ada data barang.");
+      return sendCleanReply(message, "❌ Tidak ada data barang.");
     }
 
     const menu = new StringSelectMenuBuilder()
@@ -82,7 +101,7 @@ client.on("messageCreate", async (message) => {
 
     const row = new ActionRowBuilder().addComponents(menu);
 
-    return message.reply({
+    return sendCleanReply(message, {
       content:
         "🛒 **CEK STOK BARANG**\n" +
         "Silakan pilih barang di bawah ini:",
@@ -91,7 +110,7 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-// ================= DROPDOWN INTERACTION =================
+// ================= DROPDOWN =================
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isStringSelectMenu()) return;
   if (interaction.customId !== "select_stock_item") return;
@@ -106,18 +125,28 @@ client.on("interactionCreate", async (interaction) => {
   const statusEmoji = total > 0 ? "🟢" : "🔴";
   const statusText = total > 0 ? "READY" : "HABIS";
 
-  return interaction.reply({
-    content:
-      "━━━━━━━━━━━━━━━━━━━\n" +
-      "🛍️ **INFORMASI STOK BARANG**\n" +
-      "━━━━━━━━━━━━━━━━━━━\n\n" +
-      `📦 **Produk** : ${name}\n` +
-      `📊 **Total Stok** : ${total}\n` +
-      `💰 **Harga / @** : ${rupiah(price)}\n` +
-      `${statusEmoji} **Status** : ${statusText}\n\n` +
-      "📞 Hubungi admin untuk pemesanan\n" +
-      "━━━━━━━━━━━━━━━━━━━",
-  });
+  try {
+    if (lastBotMessage) {
+      await lastBotMessage.delete().catch(() => {});
+    }
+
+    const sent = await interaction.reply({
+      content:
+        "━━━━━━━━━━━━━━━━━━━\n" +
+        "🛍️ **INFORMASI STOK BARANG**\n" +
+        "━━━━━━━━━━━━━━━━━━━\n\n" +
+        `📦 **Produk** : ${name}\n` +
+        `📊 **Total Stok** : ${total}\n` +
+        `💰 **Harga / @** : ${rupiah(price)}\n` +
+        `${statusEmoji} **Status** : ${statusText}\n\n` +
+        "📞 Hubungi admin @habzee untuk pemesanan\n" +
+        "━━━━━━━━━━━━━━━━━━━",
+    });
+
+    lastBotMessage = sent;
+  } catch (err) {
+    console.error("INTERACTION ERROR:", err);
+  }
 });
 
 // ================= LOGIN =================
