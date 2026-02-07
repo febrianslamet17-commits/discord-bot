@@ -66,8 +66,8 @@ client.on("messageCreate", async (message) => {
     let text =
       "📜✨ **MENU BOT** ✨📜\n\n" +
       "👥 **CUSTOMER**\n" +
-      "🛒 `.stock` → Cek stok produk\n" +
-      "🍎 `.perma` → Produk FRUIT\n" +
+      "🛒 `.stock` → Cek stok produk Fruit\n" +
+      "🍎 `.perma` → Produk Permanent FRUIT\n" +
       "🎮 `.gamepass` → Produk Game Pass\n\n";
 
     if (staff) {
@@ -165,7 +165,7 @@ client.on("interactionCreate", async (i) => {
         `📊 Stok : **${data.totals[idx]}**\n` +
         `💰 Harga : **${rupiah(data.prices[idx])}**\n` +
         `🟢 Status : **${data.totals[idx] > 0 ? "READY" : "HABIS"}**\n\n` +
-        `📞 Seller : ${SELLER_TAG}`,
+        `📞 Seller : Pembelian Hubungi Owner ${SELLER_TAG}`,
     });
   }
 
