@@ -33,8 +33,8 @@ async function getResponses() {
 
 // ================= STOCK VIEW (FINAL) =================
 async function getStockView() {
-  const itemsRow = await readRange("BOT_VIEW!B6:T6");
-  const totalsRow = await readRange("BOT_VIEW!B21:T21");
+  const itemsRow = await readRange("STOCK_MATRIX!B6:T6");
+  const totalsRow = await readRange("STOCK_MATRIX!B21:T21");
 
   return {
     items: itemsRow[0] || [],
