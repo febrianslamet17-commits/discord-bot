@@ -1,3 +1,4 @@
+const { getCommands, getResponses } = require("./sheets");
 const { Client, GatewayIntentBits } = require("discord.js");
 
 const client = new Client({
@@ -10,24 +11,17 @@ const client = new Client({
 
 const PREFIX = ".";
 
-client.once("ready", () => {
+client.once("clientReady", async () => {
   console.log(`Bot aktif sebagai ${client.user.tag}`);
-});
 
-client.on("messageCreate", async (message) => {
-  // Abaikan bot lain
-  if (message.author.bot) return;
+  try {
+    const commands = await getCommands();
+    const responses = await getResponses();
 
-  // Harus diawali prefix
-  if (!message.content.startsWith(PREFIX)) return;
-
-  const command = message.content.slice(PREFIX.length).trim().toLowerCase();
-
-  if (command === "ping") {
-    const sent = await message.reply("🏓 ping...");
-    const latency = sent.createdTimestamp - message.createdTimestamp;
-
-    sent.edit(`🏓 **Ping Pong!**\n⏱️ ${latency} ms`);
+    console.log("COMMANDS:", commands);
+    console.log("RESPONSES:", responses);
+  } catch (err) {
+    console.error("GAGAL BACA SHEET:", err.message);
   }
 });
 
