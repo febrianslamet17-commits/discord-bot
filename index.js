@@ -3,6 +3,8 @@ const {
   GatewayIntentBits,
   ActionRowBuilder,
   StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require("discord.js");
 
 const { getStockMatrix, getSimpleList } = require("./sheets");
@@ -12,6 +14,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
   ],
 });
 
@@ -19,10 +22,11 @@ const client = new Client({
 const OWNER_ROLE_IDS = ["1469804991987454022"];
 const SELLER_TAG = "<@habzee>";
 const BOT_REPLY_TTL = 20_000;
+const BELI_LIMIT_PER_DAY = 2;
 
-// ================= USER STATE =================
-// key = channelId:userId
-const userState = new Map();
+// ================= STATE =================
+const userState = new Map(); // channelId:userId
+const beliUsage = new Map(); // userId -> { date, count }
 
 // ================= READY =================
 client.once("ready", () => {
@@ -43,11 +47,14 @@ function autoDeleteCommand(message) {
   setTimeout(() => message.delete().catch(() => {}), 1000);
 }
 
-// 🔥 INTI AUTO DELETE PER USER
-async function sendUserScopedReply(message, payload) {
-  const key = `${message.channelId}:${message.author.id}`;
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
 
+async function sendUserScopedReply(message, payload, ttl = BOT_REPLY_TTL) {
+  const key = `${message.channelId}:${message.author.id}`;
   const prev = userState.get(key);
+
   if (prev?.botMessage) {
     await prev.botMessage.delete().catch(() => {});
     clearTimeout(prev.timeout);
@@ -58,7 +65,7 @@ async function sendUserScopedReply(message, payload) {
   const timeout = setTimeout(() => {
     botMessage.delete().catch(() => {});
     userState.delete(key);
-  }, BOT_REPLY_TTL);
+  }, ttl);
 
   userState.set(key, { botMessage, timeout });
   return botMessage;
@@ -74,7 +81,7 @@ client.on("messageCreate", async (message) => {
   const cmd = message.content.slice(1).trim().toLowerCase();
   const staff = isStaff(message.member);
 
-  // ============ PING (TIDAK MASUK AUTO DELETE BOT) ============
+  // ============ PING ============
   if (cmd === "ping") {
     const sent = await message.reply("🏓 **Ping...**");
     const latency = sent.createdTimestamp - message.createdTimestamp;
@@ -82,23 +89,107 @@ client.on("messageCreate", async (message) => {
     setTimeout(() => sent.delete().catch(() => {}), BOT_REPLY_TTL);
 
     return sent.edit(
-      "🏓 **PING PONG!**\n\n" +
-      `⏱️ Latency : **${latency} ms**\n` +
-      "🟢 Status : **BOT ONLINE**"
+      "🏓 **PING PONG!** 🏓\n\n" +
+        `⏱️ **Latency** : **${latency} ms**\n` +
+        "🟢 **Status** : **BOT ONLINE**"
     );
+  }
+
+  // ============ BELI (ANTI ABUSE + DM) ============
+  if (cmd === "beli") {
+    const userId = message.author.id;
+
+    // ---- LIMIT UNTUK USER BIASA ----
+    if (!staff) {
+      const today = todayKey();
+      const usage = beliUsage.get(userId);
+
+      if (!usage || usage.date !== today) {
+        beliUsage.set(userId, { date: today, count: 1 });
+      } else {
+        if (usage.count >= BELI_LIMIT_PER_DAY) {
+          return sendUserScopedReply(
+            message,
+            "⛔ **Batas Penggunaan Tercapai**\n\n" +
+              "🛍️ Fitur **`.beli` hanya bisa digunakan 2x per hari**.\n" +
+              "⏳ Silakan coba kembali **besok**.\n\n" +
+              "🙏 Terima kasih atas pengertiannya",
+            60_000
+          );
+        }
+        usage.count++;
+      }
+    }
+
+    // ---- BUTTONS (WA + DISCORD + TELEGRAM) ----
+    const buttons = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel("💬 WhatsApp")
+        .setStyle(ButtonStyle.Link)
+        .setURL("https://wa.me/6285156066467"),
+
+      new ButtonBuilder()
+        .setLabel("💠 Discord Server")
+        .setStyle(ButtonStyle.Link)
+        .setURL("https://discord.gg/s8Cj5CEZqB"),
+
+      new ButtonBuilder()
+        .setLabel("🤖 Telegram Bot")
+        .setStyle(ButtonStyle.Link)
+        .setURL("https://t.me/QodirStockBot")
+    );
+
+    // ---- DM ----
+    try {
+      await message.author.send({
+        content:
+          "🛒✨ **INFORMASI PEMBELIAN** ✨🛒\n" +
+          "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+          "📱 **WhatsApp — Fast Response**\n" +
+          "💠 **Discord — Diskusi & Update**\n" +
+          "🤖 **Telegram Bot — Otomatis**\n\n" +
+          "━━━━━━━━━━━━━━━━━━━━━━\n" +
+          "⚡ **Fast response via WhatsApp**\n" +
+          "📥 Pesan dibalas satu per satu\n" +
+          "⏳ Jika belum dibalas berarti **antri / toko sedang offline**\n\n" +
+          "🙏 Terima kasih atas kesabaran dan orderannya ❤️",
+        components: [buttons],
+      });
+    } catch (err) {
+      // ---- DM GAGAL ----
+      return sendUserScopedReply(
+        message,
+        "❌ **GAGAL MENGIRIM DM**\n\n" +
+          "🔒 DM kamu kemungkinan **dinonaktifkan**.\n\n" +
+          "📌 **Cara mengaktifkan DM Discord:**\n" +
+          "1️⃣ Klik **Nama Server**\n" +
+          "2️⃣ Pilih **Privacy Settings**\n" +
+          "3️⃣ Aktifkan **Allow Direct Messages**\n" +
+          "4️⃣ Ketik **`.beli`** lagi\n\n" +
+          "🙏 Setelah DM aktif, bot akan mengirimkan info pembelian otomatis",
+        60_000
+      );
+    }
+
+    return;
   }
 
   // ============ MENU ============
   if (cmd === "menu") {
     let text =
       "📜✨ **MENU BOT** ✨📜\n\n" +
-      "👥 CUSTOMER\n" +
-      "🛒 `.stock`\n" +
-      "🍎 `.perma`\n" +
-      "🎮 `.gamepass`\n\n";
+      "👥 **CUSTOMER**\n" +
+      "🛒 `.stock` → Cek stok produk\n" +
+      "🍎 `.perma` → Produk FRUIT\n" +
+      "🎮 `.gamepass` → Produk Game Pass\n" +
+      "🛍️ `.beli` → Cara pembelian\n" +
+      "🏓 `.ping` → Status bot\n\n";
 
     if (staff) {
-      text += "🧠 STAFF\n📊 `.stock` (detail akun)\n\n";
+      text +=
+        "━━━━━━━━━━━━━━━━━━\n" +
+        "🧠 **OWNER / STAFF**\n" +
+        "📊 `.stock` → Detail stok per akun\n\n";
     }
 
     return sendUserScopedReply(message, text);
@@ -119,20 +210,18 @@ client.on("messageCreate", async (message) => {
       );
 
     return sendUserScopedReply(message, {
-      content: staff ? "🧠 MODE STAFF" : "🛒 CEK STOK",
+      content: staff
+        ? "🧠📊 **MODE STAFF — DETAIL STOK**"
+        : "🛒✨ **CEK STOK PRODUK**",
       components: [new ActionRowBuilder().addComponents(menu)],
     });
   }
 
   // ============ PERMA ============
-  if (cmd === "perma") {
-    return listCommand(message, "FRUIT", "🍎");
-  }
+  if (cmd === "perma") return listCommand(message, "FRUIT", "🍎");
 
   // ============ GAMEPASS ============
-  if (cmd === "gamepass") {
-    return listCommand(message, "GP", "🎮");
-  }
+  if (cmd === "gamepass") return listCommand(message, "GP", "🎮");
 });
 
 // ================= LIST COMMAND =================
@@ -172,7 +261,6 @@ client.on("interactionCreate", async (i) => {
   }
 
   const data = await getStockMatrix();
-
   let content = "";
 
   if (i.customId === "stock_user") {
