@@ -23,7 +23,7 @@ const OWNER_ROLE_IDS = ["1469804991987454022"];
 
 // WHITELIST CHANNEL UNTUK .clear
 const CLEAR_WHITELIST_CHANNEL_IDS = [
-  "489457795444506624", // channel yang BOLEH di clear
+  "1469446343197069536", // channel yang BOLEH di clear
 ];
 
 const SELLER_TAG = "<@habzee>";
