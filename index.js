@@ -20,13 +20,26 @@ const client = new Client({
 
 // ================= CONFIG =================
 const OWNER_ROLE_IDS = ["1469804991987454022"];
+
+// WHITELIST CHANNEL UNTUK .clear
+const CLEAR_WHITELIST_CHANNEL_IDS = [
+  "489457795444506624", // channel yang BOLEH di clear
+];
+
 const SELLER_TAG = "<@habzee>";
 const BOT_REPLY_TTL = 20_000;
 const BELI_LIMIT_PER_DAY = 2;
 
 // ================= STATE =================
-const userState = new Map(); // channelId:userId
+// per user per channel
+const userState = new Map(); // key = channelId:userId
+
+// limit .beli
 const beliUsage = new Map(); // userId -> { date, count }
+
+// state konfirmasi .clear
+// key = channelId:userId -> step (1 | 2)
+const clearConfirmState = new Map();
 
 // ================= READY =================
 client.once("ready", () => {
@@ -40,7 +53,9 @@ function rupiah(val) {
 
 function isStaff(member) {
   if (!member || !member.roles) return false;
-  return member.roles.cache.some(r => OWNER_ROLE_IDS.includes(r.id));
+  return member.roles.cache.some(r =>
+    OWNER_ROLE_IDS.includes(r.id)
+  );
 }
 
 function autoDeleteCommand(message) {
@@ -51,6 +66,7 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// AUTO DELETE BOT PER USER
 async function sendUserScopedReply(message, payload, ttl = BOT_REPLY_TTL) {
   const key = `${message.channelId}:${message.author.id}`;
   const prev = userState.get(key);
@@ -90,16 +106,15 @@ client.on("messageCreate", async (message) => {
 
     return sent.edit(
       "🏓 **PING PONG!** 🏓\n\n" +
-        `⏱️ **Latency** : **${latency} ms**\n` +
-        "🟢 **Status** : **BOT ONLINE**"
+      `⏱️ **Latency** : **${latency} ms**\n` +
+      "🟢 **Status** : **BOT ONLINE**"
     );
   }
 
-  // ============ BELI (ANTI ABUSE + DM) ============
+  // ============ BELI ============
   if (cmd === "beli") {
     const userId = message.author.id;
 
-    // ---- LIMIT UNTUK USER BIASA ----
     if (!staff) {
       const today = todayKey();
       const usage = beliUsage.get(userId);
@@ -110,9 +125,9 @@ client.on("messageCreate", async (message) => {
         if (usage.count >= BELI_LIMIT_PER_DAY) {
           return sendUserScopedReply(
             message,
-            "⛔ **Batas Penggunaan Tercapai**\n\n" +
-              "🛍️ Fitur **`.beli` hanya bisa digunakan 2x per hari**.\n" +
-              "⏳ Silakan coba kembali **besok**.\n\n" +
+            "⛔ **BATAS HARIAN TERCAPAI**\n\n" +
+              "Fitur **`.beli` hanya bisa digunakan 2x per hari**.\n" +
+              "Silakan coba kembali **besok**.\n\n" +
               "🙏 Terima kasih atas pengertiannya",
             60_000
           );
@@ -121,25 +136,21 @@ client.on("messageCreate", async (message) => {
       }
     }
 
-    // ---- BUTTONS (WA + DISCORD + TELEGRAM) ----
     const buttons = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setLabel("💬 WhatsApp")
         .setStyle(ButtonStyle.Link)
         .setURL("https://wa.me/6285156066467"),
-
       new ButtonBuilder()
         .setLabel("💠 Discord Server")
         .setStyle(ButtonStyle.Link)
         .setURL("https://discord.gg/s8Cj5CEZqB"),
-
       new ButtonBuilder()
         .setLabel("🤖 Telegram Bot")
         .setStyle(ButtonStyle.Link)
         .setURL("https://t.me/QodirStockBot")
     );
 
-    // ---- DM ----
     try {
       await message.author.send({
         content:
@@ -149,24 +160,22 @@ client.on("messageCreate", async (message) => {
           "💠 **Discord — Diskusi & Update**\n" +
           "🤖 **Telegram Bot — Otomatis**\n\n" +
           "━━━━━━━━━━━━━━━━━━━━━━\n" +
-          "⚡ **Fast response via WhatsApp**\n" +
+          "⚡ Fast response via WhatsApp\n" +
           "📥 Pesan dibalas satu per satu\n" +
-          "⏳ Jika belum dibalas berarti **antri / toko sedang offline**\n\n" +
+          "⏳ Jika belum dibalas berarti **antri / toko offline**\n\n" +
           "🙏 Terima kasih atas kesabaran dan orderannya ❤️",
         components: [buttons],
       });
-    } catch (err) {
-      // ---- DM GAGAL ----
+    } catch {
       return sendUserScopedReply(
         message,
         "❌ **GAGAL MENGIRIM DM**\n\n" +
-          "🔒 DM kamu kemungkinan **dinonaktifkan**.\n\n" +
-          "📌 **Cara mengaktifkan DM Discord:**\n" +
+          "🔒 DM kamu **nonaktif**.\n\n" +
+          "📌 **Cara mengaktifkan DM:**\n" +
           "1️⃣ Klik **Nama Server**\n" +
-          "2️⃣ Pilih **Privacy Settings**\n" +
+          "2️⃣ **Privacy Settings**\n" +
           "3️⃣ Aktifkan **Allow Direct Messages**\n" +
-          "4️⃣ Ketik **`.beli`** lagi\n\n" +
-          "🙏 Setelah DM aktif, bot akan mengirimkan info pembelian otomatis",
+          "4️⃣ Ketik **`.beli`** lagi",
         60_000
       );
     }
@@ -178,21 +187,59 @@ client.on("messageCreate", async (message) => {
   if (cmd === "menu") {
     let text =
       "📜✨ **MENU BOT** ✨📜\n\n" +
-      "👥 **CUSTOMER**\n" +
-      "🛒 `.stock` → Cek stok produk\n" +
-      "🍎 `.perma` → Produk FRUIT\n" +
-      "🎮 `.gamepass` → Produk Game Pass\n" +
-      "🛍️ `.beli` → Cara pembelian\n" +
-      "🏓 `.ping` → Status bot\n\n";
+      "👥 CUSTOMER\n" +
+      "🛒 `.stock`\n" +
+      "🍎 `.perma`\n" +
+      "🎮 `.gamepass`\n" +
+      "🛍️ `.beli`\n" +
+      "🏓 `.ping`\n\n";
 
     if (staff) {
       text +=
         "━━━━━━━━━━━━━━━━━━\n" +
-        "🧠 **OWNER / STAFF**\n" +
-        "📊 `.stock` → Detail stok per akun\n\n";
+        "🧠 OWNER / STAFF\n" +
+        "📊 `.stock` (detail akun)\n" +
+        "🧹 `.clear` (hapus channel)\n\n";
     }
 
     return sendUserScopedReply(message, text);
+  }
+
+  // ============ CLEAR (STAFF ONLY + WHITELIST) ============
+  if (cmd === "clear" && staff) {
+    if (!CLEAR_WHITELIST_CHANNEL_IDS.includes(message.channelId)) {
+      return sendUserScopedReply(
+        message,
+        "⛔ **AKSES DITOLAK**\n\n" +
+          "Perintah **`.clear` tidak diizinkan di channel ini**.",
+        30_000
+      );
+    }
+
+    const key = `${message.channelId}:${message.author.id}`;
+    clearConfirmState.set(key, 1);
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("clear_yes_1")
+        .setLabel("✅ YA")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId("clear_no")
+        .setLabel("❌ TIDAK")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    return sendUserScopedReply(
+      message,
+      {
+        content:
+          "⚠️ **PERINGATAN** ⚠️\n\n" +
+          "Apakah Anda yakin ingin **menghapus semua pesan di channel ini?**",
+        components: [row],
+      },
+      60_000
+    );
   }
 
   // ============ STOCK ============
@@ -217,10 +264,7 @@ client.on("messageCreate", async (message) => {
     });
   }
 
-  // ============ PERMA ============
   if (cmd === "perma") return listCommand(message, "FRUIT", "🍎");
-
-  // ============ GAMEPASS ============
   if (cmd === "gamepass") return listCommand(message, "GP", "🎮");
 });
 
@@ -248,8 +292,66 @@ async function listCommand(message, sheet, emoji) {
   });
 }
 
-// ================= INTERACTION =================
+// ================= INTERACTION (BUTTON + SELECT) =================
 client.on("interactionCreate", async (i) => {
+  // ===== BUTTON CLEAR =====
+  if (i.isButton()) {
+    const key = `${i.channelId}:${i.user.id}`;
+    const step = clearConfirmState.get(key);
+
+    if (i.customId === "clear_no") {
+      clearConfirmState.delete(key);
+      return i.reply({
+        content: "❎ **Perintah dibatalkan.**",
+        ephemeral: true,
+      });
+    }
+
+    if (i.customId === "clear_yes_1" && step === 1) {
+      clearConfirmState.set(key, 2);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("clear_yes_2")
+          .setLabel("🔥 YA, SAYA YAKIN")
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId("clear_no")
+          .setLabel("❌ BATAL")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      return i.update({
+        content:
+          "🚨 **KONFIRMASI TERAKHIR** 🚨\n\n" +
+          "**Anda BENAR-BENAR yakin ingin menghapus semua pesan di channel ini?**",
+        components: [row],
+      });
+    }
+
+    if (i.customId === "clear_yes_2" && step === 2) {
+      clearConfirmState.delete(key);
+
+      await i.reply({
+        content: "🧹 **Menghapus pesan...**",
+        ephemeral: true,
+      });
+
+      let fetched;
+      do {
+        fetched = await i.channel.messages.fetch({ limit: 100 });
+        const deletable = fetched.filter(
+          m => Date.now() - m.createdTimestamp < 14 * 24 * 60 * 60 * 1000
+        );
+        if (deletable.size === 0) break;
+        await i.channel.bulkDelete(deletable, true);
+      } while (fetched.size >= 2);
+
+      return;
+    }
+  }
+
+  // ===== SELECT MENU =====
   if (!i.isStringSelectMenu()) return;
 
   const key = `${i.channelId}:${i.user.id}`;
