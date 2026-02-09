@@ -5,13 +5,10 @@ const {
   StringSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
-  AttachmentBuilder,
 } = require("discord.js");
 
-const { google } = require("googleapis");
 const { getStockMatrix, getSimpleList } = require("./sheets");
 
-// ================= CLIENT =================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -23,29 +20,26 @@ const client = new Client({
 
 // ================= CONFIG =================
 const OWNER_ROLE_IDS = ["1469804991987454022"];
-const CLEAR_WHITELIST_CHANNEL_IDS = ["489457795444506624"];
 
+// WHITELIST CHANNEL UNTUK .clear
+const CLEAR_WHITELIST_CHANNEL_IDS = [
+  "489457795444506624", // channel yang BOLEH di clear
+];
+
+const SELLER_TAG = "<@habzee>";
 const BOT_REPLY_TTL = 20_000;
 const BELI_LIMIT_PER_DAY = 2;
-const AKUN_LIMIT_PER_DAY = 2;
-
-// GOOGLE DRIVE
-const DRIVE_FOLDER_ID = "1VRiR6OWMADt0N-SzcQN8IExveR-tJhE8";
 
 // ================= STATE =================
-const userState = new Map();     // per user per channel
-const beliUsage = new Map();     // .beli limit
-const akunUsage = new Map();     // .akun limit
+// per user per channel
+const userState = new Map(); // key = channelId:userId
+
+// limit .beli
+const beliUsage = new Map(); // userId -> { date, count }
+
+// state konfirmasi .clear
+// key = channelId:userId -> step (1 | 2)
 const clearConfirmState = new Map();
-
-// ================= GOOGLE DRIVE =================
-const driveAuth = new google.auth.JWT({
-  email: process.env.GOOGLE_CLIENT_EMAIL,
-  key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  scopes: ["https://www.googleapis.com/auth/drive.readonly"],
-});
-
-const drive = google.drive({ version: "v3", auth: driveAuth });
 
 // ================= READY =================
 client.once("ready", () => {
@@ -53,23 +47,26 @@ client.once("ready", () => {
 });
 
 // ================= UTIL =================
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function rupiah(val) {
   return "Rp " + Number(val || 0).toLocaleString("id-ID");
 }
 
 function isStaff(member) {
   if (!member || !member.roles) return false;
-  return member.roles.cache.some(r => OWNER_ROLE_IDS.includes(r.id));
+  return member.roles.cache.some(r =>
+    OWNER_ROLE_IDS.includes(r.id)
+  );
 }
 
 function autoDeleteCommand(message) {
   setTimeout(() => message.delete().catch(() => {}), 1000);
 }
 
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// AUTO DELETE BOT PER USER
 async function sendUserScopedReply(message, payload, ttl = BOT_REPLY_TTL) {
   const key = `${message.channelId}:${message.author.id}`;
   const prev = userState.get(key);
@@ -90,24 +87,6 @@ async function sendUserScopedReply(message, payload, ttl = BOT_REPLY_TTL) {
   return botMessage;
 }
 
-// ================= DRIVE HELPER =================
-async function getImagesFromDrive() {
-  const res = await drive.files.list({
-    q: `'${DRIVE_FOLDER_ID}' in parents and mimeType contains 'image/'`,
-    fields: "files(id, name)",
-    pageSize: 100,
-  });
-  return res.data.files || [];
-}
-
-function chunkArray(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) {
-    out.push(arr.slice(i, i + size));
-  }
-  return out;
-}
-
 // ================= MESSAGE HANDLER =================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
@@ -120,32 +99,36 @@ client.on("messageCreate", async (message) => {
 
   // ============ PING ============
   if (cmd === "ping") {
-    const sent = await message.reply("🏓 Ping...");
+    const sent = await message.reply("🏓 **Ping...**");
     const latency = sent.createdTimestamp - message.createdTimestamp;
+
     setTimeout(() => sent.delete().catch(() => {}), BOT_REPLY_TTL);
 
     return sent.edit(
-      `🏓 **PING PONG!**\n\n⏱️ ${latency} ms\n🟢 BOT ONLINE`
+      "🏓 **PING PONG!** 🏓\n\n" +
+      `⏱️ **Latency** : **${latency} ms**\n` +
+      "🟢 **Status** : **BOT ONLINE**"
     );
   }
 
-  // ============ AKUN (FINAL) ============
-  if (cmd === "akun") {
+  // ============ BELI ============
+  if (cmd === "beli") {
     const userId = message.author.id;
 
     if (!staff) {
       const today = todayKey();
-      const usage = akunUsage.get(userId);
+      const usage = beliUsage.get(userId);
 
       if (!usage || usage.date !== today) {
-        akunUsage.set(userId, { date: today, count: 1 });
+        beliUsage.set(userId, { date: today, count: 1 });
       } else {
-        if (usage.count >= AKUN_LIMIT_PER_DAY) {
+        if (usage.count >= BELI_LIMIT_PER_DAY) {
           return sendUserScopedReply(
             message,
             "⛔ **BATAS HARIAN TERCAPAI**\n\n" +
-              "📂 Fitur **`.akun` hanya bisa digunakan 2x per hari**.\n" +
-              "⏳ Silakan coba kembali besok.",
+              "Fitur **`.beli` hanya bisa digunakan 2x per hari**.\n" +
+              "Silakan coba kembali **besok**.\n\n" +
+              "🙏 Terima kasih atas pengertiannya",
             60_000
           );
         }
@@ -153,66 +136,46 @@ client.on("messageCreate", async (message) => {
       }
     }
 
-    let files;
-    try {
-      files = await getImagesFromDrive();
-    } catch {
-      return sendUserScopedReply(
-        message,
-        "❌ **GAGAL MENGAMBIL DATA AKUN**",
-        60_000
-      );
-    }
-
-    if (!files.length) {
-      return sendUserScopedReply(
-        message,
-        "📂 **BELUM ADA AKUN TERSEDIA**",
-        60_000
-      );
-    }
-
-    const waButton = new ActionRowBuilder().addComponents(
+    const buttons = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setLabel("💬 WhatsApp – Saya mau beli akun")
+        .setLabel("💬 WhatsApp")
         .setStyle(ButtonStyle.Link)
-        .setURL(
-          "https://wa.me/6285156066467?text=" +
-            encodeURIComponent("Halo, saya mau beli akun")
-        )
+        .setURL("https://wa.me/6285156066467"),
+      new ButtonBuilder()
+        .setLabel("💠 Discord Server")
+        .setStyle(ButtonStyle.Link)
+        .setURL("https://discord.gg/s8Cj5CEZqB"),
+      new ButtonBuilder()
+        .setLabel("🤖 Telegram Bot")
+        .setStyle(ButtonStyle.Link)
+        .setURL("https://t.me/QodirStockBot")
     );
 
     try {
-      await message.author.send(
-        "📂✨ **DAFTAR AKUN TERSEDIA** ✨📂\n" +
-          "━━━━━━━━━━━━━━━━━━\n" +
-          "Scroll DM untuk melihat semua gambar.\n"
-      );
-
-      const batches = chunkArray(files, 5);
-
-      for (const batch of batches) {
-        const attachments = batch.map(
-          f =>
-            new AttachmentBuilder(
-              `https://drive.google.com/uc?id=${f.id}`,
-              { name: f.name }
-            )
-        );
-
-        await message.author.send({
-          files: attachments,
-          components: [waButton],
-        });
-
-        await new Promise(res => setTimeout(res, 1500));
-      }
+      await message.author.send({
+        content:
+          "🛒✨ **INFORMASI PEMBELIAN** ✨🛒\n" +
+          "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+          "📱 **WhatsApp — Fast Response**\n" +
+          "💠 **Discord — Diskusi & Update**\n" +
+          "🤖 **Telegram Bot — Otomatis**\n\n" +
+          "━━━━━━━━━━━━━━━━━━━━━━\n" +
+          "⚡ Fast response via WhatsApp\n" +
+          "📥 Pesan dibalas satu per satu\n" +
+          "⏳ Jika belum dibalas berarti **antri / toko offline**\n\n" +
+          "🙏 Terima kasih atas kesabaran dan orderannya ❤️",
+        components: [buttons],
+      });
     } catch {
       return sendUserScopedReply(
         message,
         "❌ **GAGAL MENGIRIM DM**\n\n" +
-          "🔒 Aktifkan **Allow Direct Messages** di server ini,\n" +
-          "lalu ketik **`.akun`** lagi.",
+          "🔒 DM kamu **nonaktif**.\n\n" +
+          "📌 **Cara mengaktifkan DM:**\n" +
+          "1️⃣ Klik **Nama Server**\n" +
+          "2️⃣ **Privacy Settings**\n" +
+          "3️⃣ Aktifkan **Allow Direct Messages**\n" +
+          "4️⃣ Ketik **`.beli`** lagi",
         60_000
       );
     }
@@ -223,27 +186,32 @@ client.on("messageCreate", async (message) => {
   // ============ MENU ============
   if (cmd === "menu") {
     let text =
-      "📜 **MENU BOT**\n\n" +
+      "📜✨ **MENU BOT** ✨📜\n\n" +
+      "👥 CUSTOMER\n" +
       "🛒 `.stock`\n" +
       "🍎 `.perma`\n" +
       "🎮 `.gamepass`\n" +
-      "📂 `.akun`\n" +
       "🛍️ `.beli`\n" +
       "🏓 `.ping`\n\n";
 
     if (staff) {
-      text += "🧠 STAFF: `.clear`\n";
+      text +=
+        "━━━━━━━━━━━━━━━━━━\n" +
+        "🧠 OWNER / STAFF\n" +
+        "📊 `.stock` (detail akun)\n" +
+        "🧹 `.clear` (hapus channel)\n\n";
     }
 
     return sendUserScopedReply(message, text);
   }
 
-  // ============ CLEAR ============
+  // ============ CLEAR (STAFF ONLY + WHITELIST) ============
   if (cmd === "clear" && staff) {
     if (!CLEAR_WHITELIST_CHANNEL_IDS.includes(message.channelId)) {
       return sendUserScopedReply(
         message,
-        "⛔ `.clear` tidak diizinkan di channel ini.",
+        "⛔ **AKSES DITOLAK**\n\n" +
+          "Perintah **`.clear` tidak diizinkan di channel ini**.",
         30_000
       );
     }
@@ -266,60 +234,176 @@ client.on("messageCreate", async (message) => {
       message,
       {
         content:
-          "⚠️ **YAKIN HAPUS SEMUA PESAN DI CHANNEL INI?**",
+          "⚠️ **PERINGATAN** ⚠️\n\n" +
+          "Apakah Anda yakin ingin **menghapus semua pesan di channel ini?**",
         components: [row],
       },
       60_000
     );
   }
-});
 
-// ================= INTERACTION =================
-client.on("interactionCreate", async (i) => {
-  if (!i.isButton()) return;
+  // ============ STOCK ============
+  if (cmd === "stock") {
+    const data = await getStockMatrix();
 
-  const key = `${i.channelId}:${i.user.id}`;
-  const step = clearConfirmState.get(key);
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(staff ? "stock_staff" : "stock_user")
+      .setPlaceholder("📦 Pilih produk")
+      .addOptions(
+        data.items
+          .map((v, i) => v && ({ label: v, value: String(i), emoji: "📦" }))
+          .filter(Boolean)
+          .slice(0, 25)
+      );
 
-  if (i.customId === "clear_no") {
-    clearConfirmState.delete(key);
-    return i.reply({ content: "❎ Dibatalkan.", ephemeral: true });
-  }
-
-  if (i.customId === "clear_yes_1" && step === 1) {
-    clearConfirmState.set(key, 2);
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("clear_yes_2")
-        .setLabel("🔥 YA, SAYA YAKIN")
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId("clear_no")
-        .setLabel("❌ BATAL")
-        .setStyle(ButtonStyle.Secondary)
-    );
-
-    return i.update({
-      content: "🚨 **ANDA BENAR-BENAR YAKIN?**",
-      components: [row],
+    return sendUserScopedReply(message, {
+      content: staff
+        ? "🧠📊 **MODE STAFF — DETAIL STOK**"
+        : "🛒✨ **CEK STOK PRODUK**",
+      components: [new ActionRowBuilder().addComponents(menu)],
     });
   }
 
-  if (i.customId === "clear_yes_2" && step === 2) {
-    clearConfirmState.delete(key);
-    await i.reply({ content: "🧹 Menghapus pesan...", ephemeral: true });
+  if (cmd === "perma") return listCommand(message, "FRUIT", "🍎");
+  if (cmd === "gamepass") return listCommand(message, "GP", "🎮");
+});
 
-    let fetched;
-    do {
-      fetched = await i.channel.messages.fetch({ limit: 100 });
-      const deletable = fetched.filter(
-        m => Date.now() - m.createdTimestamp < 14 * 24 * 60 * 60 * 1000
-      );
-      if (!deletable.size) break;
-      await i.channel.bulkDelete(deletable, true);
-    } while (fetched.size >= 2);
+// ================= LIST COMMAND =================
+async function listCommand(message, sheet, emoji) {
+  const list = await getSimpleList(sheet);
+  if (!list.length) {
+    return sendUserScopedReply(message, "❌ Data kosong.");
   }
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`list_${sheet}`)
+    .setPlaceholder("📦 Pilih produk")
+    .addOptions(
+      list.slice(0, 25).map((v, i) => ({
+        label: v.name,
+        value: String(i),
+        emoji,
+      }))
+    );
+
+  return sendUserScopedReply(message, {
+    content: `${emoji}✨ **DAFTAR PRODUK**`,
+    components: [new ActionRowBuilder().addComponents(menu)],
+  });
+}
+
+// ================= INTERACTION (BUTTON + SELECT) =================
+client.on("interactionCreate", async (i) => {
+  // ===== BUTTON CLEAR =====
+  if (i.isButton()) {
+    const key = `${i.channelId}:${i.user.id}`;
+    const step = clearConfirmState.get(key);
+
+    if (i.customId === "clear_no") {
+      clearConfirmState.delete(key);
+      return i.reply({
+        content: "❎ **Perintah dibatalkan.**",
+        ephemeral: true,
+      });
+    }
+
+    if (i.customId === "clear_yes_1" && step === 1) {
+      clearConfirmState.set(key, 2);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("clear_yes_2")
+          .setLabel("🔥 YA, SAYA YAKIN")
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId("clear_no")
+          .setLabel("❌ BATAL")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      return i.update({
+        content:
+          "🚨 **KONFIRMASI TERAKHIR** 🚨\n\n" +
+          "**Anda BENAR-BENAR yakin ingin menghapus semua pesan di channel ini?**",
+        components: [row],
+      });
+    }
+
+    if (i.customId === "clear_yes_2" && step === 2) {
+      clearConfirmState.delete(key);
+
+      await i.reply({
+        content: "🧹 **Menghapus pesan...**",
+        ephemeral: true,
+      });
+
+      let fetched;
+      do {
+        fetched = await i.channel.messages.fetch({ limit: 100 });
+        const deletable = fetched.filter(
+          m => Date.now() - m.createdTimestamp < 14 * 24 * 60 * 60 * 1000
+        );
+        if (deletable.size === 0) break;
+        await i.channel.bulkDelete(deletable, true);
+      } while (fetched.size >= 2);
+
+      return;
+    }
+  }
+
+  // ===== SELECT MENU =====
+  if (!i.isStringSelectMenu()) return;
+
+  const key = `${i.channelId}:${i.user.id}`;
+  const prev = userState.get(key);
+
+  if (prev?.botMessage) {
+    await prev.botMessage.delete().catch(() => {});
+    clearTimeout(prev.timeout);
+  }
+
+  const data = await getStockMatrix();
+  let content = "";
+
+  if (i.customId === "stock_user") {
+    const idx = Number(i.values[0]);
+    content =
+      `📦 **${data.items[idx]}**\n` +
+      `📊 Stok : **${data.totals[idx]}**\n` +
+      `💰 Harga : **${rupiah(data.prices[idx])}**\n` +
+      `🟢 Status : **${data.totals[idx] > 0 ? "READY" : "HABIS"}**\n\n` +
+      `📞 Seller : ${SELLER_TAG}`;
+  }
+
+  if (i.customId === "stock_staff") {
+    const idx = Number(i.values[0]);
+    let detail = "";
+    data.owners.forEach((o, r) => {
+      const v = data.perOwner[r]?.[idx];
+      if (v) detail += `👤 ${o} → ${v}\n`;
+    });
+    content = `📦 **${data.items[idx]}**\n\n${detail}`;
+  }
+
+  if (i.customId.startsWith("list_")) {
+    const sheet = i.customId.split("_")[1];
+    const list = await getSimpleList(sheet);
+    const item = list[Number(i.values[0])];
+    content =
+      `🛍️ **${item.name}**\n` +
+      `💰 Harga : **${item.price ? rupiah(item.price) : "❌"}**\n` +
+      `🟢 Status : **${item.price ? "READY" : "KOSONG"}**\n\n` +
+      `📞 Seller : ${SELLER_TAG}`;
+  }
+
+  const botMessage = await i.reply({ content, fetchReply: true });
+
+  const timeout = setTimeout(() => {
+    botMessage.delete().catch(() => {});
+    userState.delete(key);
+  }, BOT_REPLY_TTL);
+
+  userState.set(key, { botMessage, timeout });
 });
 
 // ================= LOGIN =================
